@@ -26,6 +26,7 @@ var (
 	hgSchemes      = []string{"https", "ssh", "http"}
 	svnSchemes     = []string{"https", "http", "svn", "svn+ssh"}
 	gopkginSchemes = []string{"https", "http"}
+	devoloSchemes  = []string{"ssh"}
 )
 
 const gopkgUnstableSuffix = "-unstable"
@@ -74,6 +75,7 @@ var (
 	jazzRegex         = regexp.MustCompile(`^(?P<root>hub\.jazz\.net(/git/[a-z0-9]+/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
 	apacheRegex       = regexp.MustCompile(`^(?P<root>git\.apache\.org(/[a-z0-9_.\-]+\.git))((?:/[A-Za-z0-9_.\-]+)*)$`)
 	vcsExtensionRegex = regexp.MustCompile(`^(?P<root>([a-z0-9.\-]+\.)+[a-z0-9.\-]+(:[0-9]+)?/[A-Za-z0-9_.\-/~]*?\.(?P<vcs>bzr|git|hg|svn))((?:/[A-Za-z0-9_.\-]+)*)$`)
+	devoloRegex       = regexp.MustCompile(`^(?P<root>devolo\.com(/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
 )
 
 // Other helper regexes
@@ -92,6 +94,7 @@ func pathDeducerTrie() *deducerTrie {
 	dxt.Insert("git.launchpad.net/", launchpadGitDeducer{regexp: glpRegex})
 	dxt.Insert("hub.jazz.net/", jazzDeducer{regexp: jazzRegex})
 	dxt.Insert("git.apache.org/", apacheDeducer{regexp: apacheRegex})
+	dxt.Insert("devolo.com/", devoloDeducer{regexp: devoloRegex})
 
 	return dxt
 }
@@ -308,6 +311,57 @@ func (m gopkginDeducer) deduceSource(p string, u *url.URL) (maybeSources, error)
 			url:      &u2,
 			major:    major,
 			unstable: unstable,
+		}
+	}
+
+	return mb, nil
+}
+
+type devoloDeducer struct {
+	regexp *regexp.Regexp
+}
+
+func (m devoloDeducer) parseAndValidatePath(p string) ([]string, error) {
+	v := m.regexp.FindStringSubmatch(p)
+	if v == nil {
+		return nil, fmt.Errorf("%s is not a valid path for a source on devolo.com", p)
+	}
+
+	return v, nil
+}
+
+func (m devoloDeducer) deduceRoot(p string) (string, error) {
+	v, err := m.parseAndValidatePath(p)
+	if err != nil {
+		return "", err
+	}
+
+	return v[1], nil
+}
+
+func (m devoloDeducer) deduceSource(p string, u *url.URL) (maybeSources, error) {
+	// Reuse root detection logic for initial validation
+	v, err := m.parseAndValidatePath(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Putting a scheme on devolo.com would be really weird, disallow it
+	if u.Scheme != "" {
+		return nil, fmt.Errorf("specifying alternate schemes on devolo.com imports is not permitted")
+	}
+
+	// devolo.com is always backed by gitlab
+	u.Host = "git@gitlab.devolo.intern"
+	u.Path = path.Join("go", v[2])
+
+	mb := make(maybeSources, len(devoloSchemes))
+	for k, scheme := range devoloSchemes {
+		u2 := *u
+		u2.Scheme = scheme
+		mb[k] = maybeDevoloSource{
+			opath: v[1],
+			url:   &u2,
 		}
 	}
 

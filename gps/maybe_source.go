@@ -129,6 +129,54 @@ func (m maybeGopkginSource) String() string {
 	return fmt.Sprintf("%T: %s (v%v) %s ", m, m.opath, m.major, ufmt(m.url))
 }
 
+type maybeDevoloSource struct {
+	// the original devolo.com import path. this is used to create the on-disk
+	// location to avoid duplicate resource management - e.g., if instances of
+	// a devolo.com project are accessed via different schemes, or if the
+	// underlying github repository is accessed directly.
+	opath string
+	// the actual upstream URL - always gitlab
+	url *url.URL
+}
+
+func (m maybeDevoloSource) try(ctx context.Context, cachedir string) (source, error) {
+	// We don't actually need a fully consistent transform into the on-disk path
+	// - just something that's unique to the particular devolo.com domain context.
+	// So, it's OK to just dumb-join the scheme with the path.
+	aliasURL := m.url.Scheme + "://" + m.opath
+	path := sourceCachePath(cachedir, aliasURL)
+	ustr := m.url.String()
+
+	r, err := vcs.NewGitRepo(ustr, path)
+	if err != nil {
+		os.RemoveAll(path)
+		r, err = vcs.NewGitRepo(ustr, path)
+		if err != nil {
+			return nil, unwrapVcsErr(err)
+		}
+	}
+
+	return &devoloSource{
+		gitSource: gitSource{
+			baseVCSSource: baseVCSSource{
+				repo: &gitRepo{r},
+			},
+		},
+		aliasURL: aliasURL,
+	}, nil
+}
+
+func (m maybeDevoloSource) URL() *url.URL {
+	return &url.URL{
+		Scheme: m.url.Scheme,
+		Path:   m.opath,
+	}
+}
+
+func (m maybeDevoloSource) String() string {
+	return fmt.Sprintf("%T: %s %s ", m, m.opath, ufmt(m.url))
+}
+
 type maybeBzrSource struct {
 	url *url.URL
 }

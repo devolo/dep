@@ -448,6 +448,18 @@ func (s *gopkginSource) listVersions(ctx context.Context) ([]PairedVersion, erro
 	return vlist, nil
 }
 
+// devoloSource is a specialized git source that uses devolo GitLab
+type devoloSource struct {
+	gitSource
+	// The aliased URL we report as being the one we talk to, even though we're
+	// actually talking directly to GitLab.
+	aliasURL string
+}
+
+func (s *devoloSource) upstreamURL() string {
+	return s.aliasURL
+}
+
 // bzrSource is a generic bzr repository implementation that should work with
 // all standard bazaar remotes.
 type bzrSource struct {
